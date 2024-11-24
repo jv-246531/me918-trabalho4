@@ -3,9 +3,11 @@ library(dplyr)
 library(ggplot2)
 library(readr)
 
-ui <- fluidPage(
+ui <- function(request) { 
+  fluidPage(
   
   shinyFeedback::useShinyFeedback(),
+  shinyjs::useShinyjs(),
   
   tags$style(
     "body { background-color: #dee3ff;}"
@@ -15,11 +17,19 @@ ui <- fluidPage(
   
   sidebarLayout(
     sidebarPanel(
-      fileInput("upload", "Faça o upload do banco de dados .csv aqui:"),
+      fileInput("upload", "Faça o upload do banco de dados .csv aqui:", accept = ".csv"),
       
       uiOutput("variavel_resposta_ui"),  
       uiOutput("variaveis_preditoras_ui"),  
-      actionButton("modelo_botao", "Construir modelo")
+      actionButton("modelo_botao",
+                   "Construir modelo"),
+      bookmarkButton(title = "Realiza bookmark da aplicação, gerando uma URL para acesso."),
+      shinyWidgets::colorPickr("point_color", "Escolha a cor dos pontos: ",
+                 selected = "#3c0c52"),
+      tags$a(href = "https://github.com/jv-246531/me918-trabalho4", 
+             class = "btn btn-info", "Ajuda"),
+      tags$a(href = "https://en.wikipedia.org/wiki/Linear_regression", 
+             class = "btn btn-secondary", "Teoria necessária"),
     ),
     
     mainPanel(
@@ -31,34 +41,71 @@ ui <- fluidPage(
     )
   )
 )
+}
 
 server <- function(input, output, session) {
   
+  uploaded_file <- reactiveVal(NULL)
+  
+  observeEvent(input$upload, {
+    req(input$upload)
+    uploaded_file(input$upload)
+  })
+  
+  onRestored(function(state) {
+    if (is.null(uploaded_file())) {
+      showNotification("Arquivo não carregado. Por favor, refaça o upload.", type = "warning")
+    }
+  })
+  
   dados <- reactive({
-    read_csv(input$upload$datapath)
+    req(uploaded_file())
+    if (!endsWith(uploaded_file()$datapath, ".csv")) {
+      shinyFeedback::feedbackWarning(
+        inputId = "upload", 
+        show = input$upload,
+        text = "Por favor, selecionar um arquivo no formato .csv."
+      )
+      return(NULL)
+    }
+    read_delim(uploaded_file()$datapath)
+  })
+  
+  dados <- reactive({
+    req(input$upload)
+    if (!endsWith(input$upload$datapath, ".csv")) {
+      shinyFeedback::feedbackWarning(
+        inputId = "upload", 
+        show = input$upload,
+        text = "Por favor, selecionar um arquivo no formato .csv."
+      )
+      return(NULL)
+    }
+    read_delim(input$upload$datapath)
   })
   
   output$variavel_resposta_ui <- renderUI({
+    req(dados())
     selectInput("variavel_resposta", 
                 "Selecione a variável resposta numérica que será predita", 
-                choices = colnames(dados() %>%
-                                     select(where(is.numeric))
-                                   ))
+                choices = colnames(dados() %>% select(where(is.numeric))))
   })
   
   output$variaveis_preditoras_ui <- renderUI({
+    req(dados(), input$variavel_resposta)
     checkboxGroupInput("variaveis_preditoras", 
                        "Selecione as variáveis preditoras", 
-                       choices = colnames(dados() %>%
-                                            select(!input$variavel_resposta)), 
+                       choices = colnames(dados() %>% 
+                                            select(-input$variavel_resposta)), 
                        selected = colnames(dados()))
   })
   
+  
   modelo <- eventReactive(input$modelo_botao, {
-    
-    formula <- paste(input$variavel_resposta,
+    req(dados())
+    formula <- paste(paste0("`", input$variavel_resposta, "`"),
                          "~",
-                         paste(input$variaveis_preditoras,
+                         paste(c("1", paste0("`", input$variaveis_preditoras, "`")),
                                collapse = " + ")) %>%
       as.formula()
     
@@ -69,24 +116,29 @@ server <- function(input, output, session) {
   
   
   output$modelo_resultado <- renderPrint({
-    summary(modelo()) 
+    req(dados())
+    anova(modelo()) 
   })
   
   
   output$R2 <- renderText({
+    req(dados())
     req(modelo())
     paste("O valor do coeficiente de determinação ajustado, R²adj, é:",
           round(summary(modelo())$adj.r.squared, 4))
   })
   
   output$grafico_predito_observado <- renderPlot({
+    req(dados())
     req(modelo())
     dados() %>%
+      select(c(input$variaveis_preditoras, input$variavel_resposta)) %>%
+      filter(complete.cases(.)) %>%
       mutate(preditos = modelo()$fitted.values) %>%
       ggplot() +
       geom_point(aes(x = preditos,
                      y = .data[[input$variavel_resposta]]),
-                 col = "#3c0c52") +
+                 col = input$point_color) +
       geom_hline(yintercept = 0) +
       labs(title = "Gráfico de Valores Preditos x Valores Observados",
            x = "Valores Preditos",
@@ -96,14 +148,17 @@ server <- function(input, output, session) {
   
   
   output$grafico_residuos <- renderPlot({
+    req(dados())
     req(modelo())
     dados() %>%
-      mutate(residuo = modelo()$residuals/sqrt(anova(modelo_)["Residuals", "Mean Sq"]),
+      select(c(input$variaveis_preditoras, input$variavel_resposta)) %>%
+      filter(complete.cases(.)) %>%
+      mutate(residuo = modelo()$residuals/sqrt(anova(modelo())["Residuals", "Mean Sq"]),
              preditos = modelo()$fitted.values) %>%
       ggplot() +
       geom_point(aes(x = preditos,
                      y = residuo),
-                 col = "#3c0c52") +
+                 col = input$point_color) +
       geom_hline(yintercept = 0) +
       labs(title = "Gráfico de Valores Preditos x Resíduos",
            x = "Valores Preditos",
@@ -112,11 +167,14 @@ server <- function(input, output, session) {
   })
   
   output$grafico_normalidade <- renderPlot({
+    req(dados())
     req(modelo())
     dados() %>%
-      mutate(residuo = modelo()$residuals/sqrt(anova(modelo_)["Residuals", "Mean Sq"])) %>%
+      select(c(input$variaveis_preditoras, input$variavel_resposta)) %>%
+      filter(complete.cases(.)) %>%
+      mutate(residuo = modelo()$residuals/sqrt(anova(modelo())["Residuals", "Mean Sq"])) %>%
       ggplot(aes(sample = residuo)) +
-      stat_qq(col = "#3c0c52") +
+      stat_qq(col = input$point_color) +
       stat_qq_line() +
       labs(title = "Gráfico Quantil-Quantil Para Resíduos do Modelo",
            x = "Quantis Normais Teóricos",
@@ -126,4 +184,4 @@ server <- function(input, output, session) {
   
 }
 
-shinyApp(ui, server)
+shinyApp(ui, server, enableBookmarking = "url")
