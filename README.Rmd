@@ -56,3 +56,5 @@ Uma vez que o modelo foi ajustado, o aplicativo exibirá o seguinte conjunto de 
 3) "Gráfico Quantil-Quantil Para Resíduos do Modelo", em que há uma comparação entre os quantis empíricos da distribuição dos resíduos com quantis teóricos normais. Permite-se, novamente, verificar a suposição de normalidade do modelo.
 
 O usuário pode se sentir livre para escolher sua cor favorita na visualização dos gráficos indicados acima.
+
+Para acesso via *shinyapps.io*, o usuário pode [clicar neste link](https://8n7yli-jo0o-v0tor0vieira0de0castro.shinyapps.io/modelo_de_reg_lin_p_conj_de_dados_fornecido_pelo_usuario/).

@@ -84,3 +84,6 @@ conjunto de informações estatísticas.
 
 O usuário pode se sentir livre para escolher sua cor favorita na
 visualização dos gráficos indicados acima.
+
+Para acesso via *shinyapps.io*, o usuário pode [clicar neste
+link](https://8n7yli-jo0o-v0tor0vieira0de0castro.shinyapps.io/modelo_de_reg_lin_p_conj_de_dados_fornecido_pelo_usuario/).

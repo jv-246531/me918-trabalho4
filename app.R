@@ -59,19 +59,6 @@ server <- function(input, output, session) {
   })
   
   dados <- reactive({
-    req(uploaded_file())
-    if (!endsWith(uploaded_file()$datapath, ".csv")) {
-      shinyFeedback::feedbackWarning(
-        inputId = "upload", 
-        show = input$upload,
-        text = "Por favor, selecionar um arquivo no formato .csv."
-      )
-      return(NULL)
-    }
-    read_delim(uploaded_file()$datapath)
-  })
-  
-  dados <- reactive({
     req(input$upload)
     if (!endsWith(input$upload$datapath, ".csv")) {
       shinyFeedback::feedbackWarning(
@@ -81,7 +68,20 @@ server <- function(input, output, session) {
       )
       return(NULL)
     }
-    read_delim(input$upload$datapath)
+    dados <- tryCatch({
+      read_delim(uploaded_file()$datapath)
+    }, error = function(e) {
+      showNotification("Erro na leitura do arquivo: verifique se o formato está correto e tente novamente.", type = "error")
+      return(NULL)
+    })
+    
+    validate(
+      need(nrow(dados) > 0, "Não há nenhuma informação no arquivo carregado."),
+      need(ncol(dados) > 0, "As colunas do conjunto de dados não estão preenchidas."),
+      need(any(sapply(dados, is.numeric)), "O arquivo deve conter no mínimo uma variável numérica, para construção do modelo.")
+    )
+    
+    dados
   })
   
   output$variavel_resposta_ui <- renderUI({
@@ -109,7 +109,10 @@ server <- function(input, output, session) {
                                collapse = " + ")) %>%
       as.formula()
     
-    modelo_regressao <- lm(formula, data = dados())
+    modelo_regressao <- dados() %>%
+      select(c(input$variaveis_preditoras, input$variavel_resposta)) %>%
+      filter(complete.cases(.)) %>%
+      lm(formula, data = .)
     
     return(modelo_regressao)
   })
@@ -131,13 +134,19 @@ server <- function(input, output, session) {
   output$grafico_predito_observado <- renderPlot({
     req(dados())
     req(modelo())
+    
+    var_resposta <- modelo() %>%
+      formula %>%
+      {all.vars(.)[1]}
+    
     dados() %>%
       select(c(input$variaveis_preditoras, input$variavel_resposta)) %>%
       filter(complete.cases(.)) %>%
-      mutate(preditos = modelo()$fitted.values) %>%
+      mutate(preditos = modelo()$fitted.values,
+             observados = .data[[var_resposta]] ) %>%
       ggplot() +
       geom_point(aes(x = preditos,
-                     y = .data[[input$variavel_resposta]]),
+                     y = observados),
                  col = input$point_color) +
       geom_hline(yintercept = 0) +
       labs(title = "Gráfico de Valores Preditos x Valores Observados",
